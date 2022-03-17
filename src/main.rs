@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 use std::hash::{Hash, Hasher};
 
 use rand::prelude::ThreadRng;
@@ -12,15 +12,19 @@ const BAND_SIZE: usize = 2;
 const SHINGLE_SIZE: usize = 3;
 
 // constants for synthetic data
+const ORIGINAL_DOCUMENT_COUNT: usize = 1000;
+const PER_DOCUMENT_MUTATION_COUNT: usize = 9; // 1000 + 9*1000 = 10000 total documents
 const DOCUMENT_LEN: usize = 100;
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-fn random_char(mut rng: &mut ThreadRng) -> char {
+fn random_char(rng: &mut ThreadRng) -> char {
     let idx = rng.gen_range(0..CHARSET.len());
     CHARSET[idx] as char
 }
 
 fn min_hash(document: &str) -> Vec<u64> {
+    // single hash function. for justification, see https://robertheaton.com/2014/05/02/jaccard-similarity-and-minhash-for-winners/
+    // and http://web.eecs.utk.edu/~jplank/plank/classes/cs494/494/notes/Min-Hash/index.html
     let shingle_count = document.len() - SHINGLE_SIZE;
     let mut heap = BinaryHeap::with_capacity(shingle_count);
 
@@ -44,7 +48,7 @@ fn generate_random_string(mut rng: &mut ThreadRng, random_string: &String) -> St
     let random_op: i32 = rng.gen_range(0..3);
 
     let change_size = 5;
-    let op_start = rng.gen_range(change_size..(PASSWORD_LEN - change_size - 1));
+    let op_start = rng.gen_range(change_size..(DOCUMENT_LEN - change_size - 1));
     let op_end = op_start + change_size;
     let mut altered_string = random_string.clone();
     if random_op == 0 {
@@ -77,13 +81,18 @@ fn main() {
 
     let altered_string = generate_random_string(&mut rng, &random_string);
 
-    println!("{:?}: {:?}", random_string, min_hash(&random_string));
-    println!("{:?}: {:?}", altered_string, min_hash(&altered_string));
-
     let documents = vec![random_string, altered_string];
+
+    let mut buckets: Vec<HashMap<Vec<u64>, usize>> = vec![];
 
     let min_hashes: Vec<Vec<u64>> = documents
         .par_iter()
-        .map(|document| min_hash(&document))
+        .enumerate()
+        .map(|(i, document)| (i, min_hash(&document)))
+        .group
         .collect();
+
+    let tuples = [("one", 1), ("two", 2), ("three", 3), ("one", 4)];
+    let m: HashMap<_, _> = tuples.into_iter().collect();
+    println!("generated map: {:?}", m);
 }
