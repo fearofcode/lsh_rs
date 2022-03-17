@@ -2,20 +2,21 @@ use std::cmp::Reverse;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
 
 use rand::prelude::ThreadRng;
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use rayon::prelude::*;
 
-const HASH_COUNT: usize = 10;
-const BAND_SIZE: usize = 2;
+const HASH_COUNT: usize = 50;
+const BAND_SIZE: usize = 5;
 const SHINGLE_SIZE: usize = 3;
 
 // constants for synthetic data
-const ORIGINAL_DOCUMENT_COUNT: usize = 1000;
-const PER_DOCUMENT_MUTATION_COUNT: usize = 9; // 1000 + 9*1000 = 10000 total documents
-const DOCUMENT_LEN: usize = 100;
+const ORIGINAL_DOCUMENT_COUNT: usize = 10000;
+const PER_DOCUMENT_MUTATION_COUNT: usize = 9; // 10000 + 9*10000 = 100000 total documents
+const DOCUMENT_LEN: usize = 3000;
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 fn random_char(rng: &mut ThreadRng) -> char {
@@ -42,11 +43,15 @@ fn chunked_min_hash(document: &str) -> Vec<(usize, u64)> {
         hashes.push(heap.pop().unwrap().0);
     }
 
-    hashes.chunks(BAND_SIZE).map(|chunk| {
-        let mut hasher = DefaultHasher::new();
-        chunk.hash(&mut hasher);
-        hasher.finish()
-    }).enumerate().collect()
+    hashes
+        .chunks(BAND_SIZE)
+        .map(|chunk| {
+            let mut hasher = DefaultHasher::new();
+            chunk.hash(&mut hasher);
+            hasher.finish()
+        })
+        .enumerate()
+        .collect()
 }
 
 fn string_shingles(document: &str) -> HashSet<u64> {
@@ -67,7 +72,12 @@ fn jaccard_similarity(a: &HashSet<u64>, b: &HashSet<u64>) -> f32 {
     (intersection_cardinality as f32) / ((a.len() + b.len() - intersection_cardinality) as f32)
 }
 
-fn nearest_neighbors(query: &str, n: usize, matches: HashSet<usize>, documents: Vec<String>) -> Vec<(usize, f32)> {
+fn nearest_neighbors(
+    query: &str,
+    n: usize,
+    matches: HashSet<usize>,
+    documents: &Vec<String>,
+) -> Vec<(usize, f32)> {
     let query_shingles = string_shingles(query);
     let mut similar_matches: Vec<(usize, f32)> = matches
         .par_iter()
@@ -76,9 +86,12 @@ fn nearest_neighbors(query: &str, n: usize, matches: HashSet<usize>, documents: 
             let match_shingles = string_shingles(document);
             let similarity = jaccard_similarity(&query_shingles, &match_shingles);
             (*m, similarity)
-        }).collect();
-    similar_matches.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
-    similar_matches.resize(n, (0, 0.0));
+        })
+        .collect();
+    similar_matches.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    if similar_matches.len() > n {
+        similar_matches.resize(n, (0, 0.0));
+    }
     similar_matches
 }
 
@@ -115,16 +128,25 @@ fn main() {
     assert_eq!(HASH_COUNT % BAND_SIZE, 0);
     let mut rng = rand::thread_rng();
 
-    let random_string: String = (0..DOCUMENT_LEN).map(|_| random_char(&mut rng)).collect();
+    let mut documents = vec![];
+    for _ in 0..ORIGINAL_DOCUMENT_COUNT {
+        let random_string: String = (0..DOCUMENT_LEN).map(|_| random_char(&mut rng)).collect();
 
-    let mut documents = vec![random_string.clone()];
+        documents.push(random_string.clone());
+
+        for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
+            let mut altered_string = random_string.clone();
+            for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
+                altered_string = generate_random_string(&mut rng, &altered_string);
+                documents.push(altered_string.clone());
+            }
+        }
+    }
+
     documents.shuffle(&mut rng);
 
-    let mut altered_string = random_string.clone();
-    for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
-        altered_string = generate_random_string(&mut rng, &altered_string);
-        documents.push(altered_string.clone());
-    }
+    println!("Document generation done, starting indexing...\n");
+    let indexing_start = Instant::now();
     let mut buckets: Vec<HashMap<u64, Vec<usize>>> = vec![];
 
     let bucket_count = HASH_COUNT / BAND_SIZE;
@@ -140,10 +162,16 @@ fn main() {
     for (document_index, chunked_min_hash) in chunked_min_hashes.iter().enumerate() {
         for (bucket_index, min_hash) in chunked_min_hash.iter() {
             let bucket = &mut buckets[*bucket_index];
-            bucket.entry(min_hash.clone()).or_insert(vec![]).push(document_index.clone());
+            bucket
+                .entry(min_hash.clone())
+                .or_insert(vec![])
+                .push(document_index.clone());
         }
     }
+    let indexing_duration = indexing_start.elapsed();
+    println!("Done indexing in {:?}, searching", indexing_duration);
 
+    let search_start = Instant::now();
     let mut matches: HashSet<usize> = HashSet::new();
     let query_signature = chunked_min_hash(&documents[0]);
     for (bucket_index, min_hash) in query_signature.iter() {
@@ -151,5 +179,19 @@ fn main() {
         if bucket.contains_key(min_hash) {
             matches.extend(&bucket[min_hash]);
         }
+    }
+
+    let top_neighbors = nearest_neighbors(&documents[0], 15, matches, &documents);
+    let search_duration = search_start.elapsed();
+
+    println!(
+        "Search took {:?}. For query {}, index 0:",
+        search_duration, &documents[0]
+    );
+    for (idx, similarity) in top_neighbors.iter() {
+        println!(
+            "{}, similarity {}, index {}",
+            documents[*idx], similarity, idx
+        );
     }
 }
