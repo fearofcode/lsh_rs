@@ -24,6 +24,35 @@ fn random_char(rng: &mut ThreadRng) -> char {
     CHARSET[idx] as char
 }
 
+fn generate_random_string(rng: &mut ThreadRng, random_string: &str) -> String {
+    let random_op: i32 = rng.gen_range(0..3);
+
+    let change_size = 5;
+    let op_start = rng.gen_range(change_size..(random_string.len() - change_size - 1));
+    let op_end = op_start + change_size;
+    let mut altered_string = random_string.to_string();
+    if random_op == 0 {
+        // insert
+        for _ in op_start..=op_end {
+            altered_string.insert(op_start, random_char(rng));
+        }
+    } else if random_op == 1 {
+        // delete
+        for _ in op_start..=op_end {
+            altered_string.remove(op_start);
+        }
+    } else {
+        // delete then insert
+        for _ in op_start..=op_end {
+            altered_string.remove(op_start);
+        }
+        for _ in op_start..=op_end {
+            altered_string.insert(op_start, random_char(rng));
+        }
+    }
+    altered_string
+}
+
 fn chunked_min_hash(document: &str) -> Vec<(usize, u64)> {
     // single hash function. for justification, see https://robertheaton.com/2014/05/02/jaccard-similarity-and-minhash-for-winners/
     // and http://web.eecs.utk.edu/~jplank/plank/classes/cs494/494/notes/Min-Hash/index.html
@@ -76,7 +105,7 @@ fn nearest_neighbors(
     query: &str,
     n: usize,
     matches: HashSet<usize>,
-    documents: &Vec<String>,
+    documents: &[String],
 ) -> Vec<(usize, f32)> {
     let query_shingles = string_shingles(query);
     let mut similar_matches: Vec<(usize, f32)> = matches
@@ -93,35 +122,6 @@ fn nearest_neighbors(
         similar_matches.resize(n, (0, 0.0));
     }
     similar_matches
-}
-
-fn generate_random_string(mut rng: &mut ThreadRng, random_string: &String) -> String {
-    let random_op: i32 = rng.gen_range(0..3);
-
-    let change_size = 5;
-    let op_start = rng.gen_range(change_size..(random_string.len() - change_size - 1));
-    let op_end = op_start + change_size;
-    let mut altered_string = random_string.clone();
-    if random_op == 0 {
-        // insert
-        for _ in op_start..=op_end {
-            altered_string.insert(op_start, random_char(&mut rng));
-        }
-    } else if random_op == 1 {
-        // delete
-        for _ in op_start..=op_end {
-            altered_string.remove(op_start);
-        }
-    } else {
-        // delete then insert
-        for _ in op_start..=op_end {
-            altered_string.remove(op_start);
-        }
-        for _ in op_start..=op_end {
-            altered_string.insert(op_start, random_char(&mut rng));
-        }
-    }
-    altered_string
 }
 
 fn main() {
@@ -156,16 +156,16 @@ fn main() {
 
     let chunked_min_hashes: Vec<Vec<(usize, u64)>> = documents
         .par_iter()
-        .map(|document| chunked_min_hash(&document))
+        .map(|document| chunked_min_hash(document))
         .collect();
 
     for (document_index, chunked_min_hash) in chunked_min_hashes.iter().enumerate() {
         for (bucket_index, min_hash) in chunked_min_hash.iter() {
             let bucket = &mut buckets[*bucket_index];
             bucket
-                .entry(min_hash.clone())
+                .entry(*min_hash)
                 .or_insert(vec![])
-                .push(document_index.clone());
+                .push(document_index);
         }
     }
     let indexing_duration = indexing_start.elapsed();
