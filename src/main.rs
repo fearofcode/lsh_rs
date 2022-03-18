@@ -10,48 +10,8 @@ use rand::Rng;
 use rayon::prelude::*;
 
 const HASH_COUNT: usize = 50;
-const BAND_SIZE: usize = 10;
+const BAND_SIZE: usize = 5;
 const SHINGLE_SIZE: usize = 5;
-
-// constants for synthetic data
-const ORIGINAL_DOCUMENT_COUNT: usize = 10000;
-const PER_DOCUMENT_MUTATION_COUNT: usize = 9; // 10000 + 9*10000 = 100000 total documents
-const DOCUMENT_LEN: usize = 3000;
-const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-fn random_char(rng: &mut ThreadRng) -> char {
-    let idx = rng.gen_range(0..CHARSET.len());
-    CHARSET[idx] as char
-}
-
-fn generate_random_string(rng: &mut ThreadRng, random_string: &str) -> String {
-    let random_op: i32 = rng.gen_range(0..3);
-
-    let change_size = 5;
-    let op_start = rng.gen_range(change_size..(random_string.len() - change_size - 1));
-    let op_end = op_start + change_size;
-    let mut altered_string = random_string.to_string();
-    if random_op == 0 {
-        // insert
-        for _ in op_start..=op_end {
-            altered_string.insert(op_start, random_char(rng));
-        }
-    } else if random_op == 1 {
-        // delete
-        for _ in op_start..=op_end {
-            altered_string.remove(op_start);
-        }
-    } else {
-        // delete then insert
-        for _ in op_start..=op_end {
-            altered_string.remove(op_start);
-        }
-        for _ in op_start..=op_end {
-            altered_string.insert(op_start, random_char(rng));
-        }
-    }
-    altered_string
-}
 
 fn chunked_min_hash(document: &str) -> Vec<(usize, u64)> {
     // single hash function. for justification, see https://robertheaton.com/2014/05/02/jaccard-similarity-and-minhash-for-winners/
@@ -124,30 +84,7 @@ fn nearest_neighbors(
     similar_matches
 }
 
-fn main() {
-    assert_eq!(HASH_COUNT % BAND_SIZE, 0);
-    let mut rng = rand::thread_rng();
-
-    let mut documents = vec![];
-    for _ in 0..ORIGINAL_DOCUMENT_COUNT {
-        let random_string: String = (0..DOCUMENT_LEN).map(|_| random_char(&mut rng)).collect();
-
-        documents.push(random_string.clone());
-
-        let mut altered_string = random_string.clone();
-        for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
-            altered_string = generate_random_string(&mut rng, &altered_string);
-            documents.push(altered_string.clone());
-        }
-    }
-
-    documents.shuffle(&mut rng);
-
-    println!(
-        "Generation of {} documents done, starting indexing...\n",
-        &documents.len()
-    );
-    let indexing_start = Instant::now();
+fn index_documents(documents: &mut Vec<String>) -> Vec<HashMap<u64, Vec<usize>>> {
     let mut buckets: Vec<HashMap<u64, Vec<usize>>> = vec![];
 
     let bucket_count = HASH_COUNT / BAND_SIZE;
@@ -169,12 +106,16 @@ fn main() {
                 .push(document_index);
         }
     }
-    let indexing_duration = indexing_start.elapsed();
-    println!("Done indexing in {:?}, searching", indexing_duration);
+    buckets
+}
 
-    let search_start = Instant::now();
+fn search_index(
+    documents: &[String],
+    buckets: &mut Vec<HashMap<u64, Vec<usize>>>,
+    query: &str,
+) -> (HashSet<usize>, Vec<(usize, f32)>) {
     let mut matches: HashSet<usize> = HashSet::new();
-    let query_signature = chunked_min_hash(&documents[0]);
+    let query_signature = chunked_min_hash(query);
     for (bucket_index, min_hash) in query_signature.iter() {
         let bucket = &mut buckets[*bucket_index];
         if bucket.contains_key(min_hash) {
@@ -182,7 +123,84 @@ fn main() {
         }
     }
 
-    let top_neighbors = nearest_neighbors(&documents[0], 25, &matches, &documents);
+    let top_neighbors = nearest_neighbors(query, 25, &matches, documents);
+    (matches, top_neighbors)
+}
+
+// constants for synthetic data
+const ORIGINAL_DOCUMENT_COUNT: usize = 10000;
+const PER_DOCUMENT_MUTATION_COUNT: usize = 9; // 10000 + 9*10000 = 100000 total documents
+const DOCUMENT_LEN: usize = 3000;
+const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+fn random_char(rng: &mut ThreadRng) -> char {
+    let idx = rng.gen_range(0..CHARSET.len());
+    CHARSET[idx] as char
+}
+
+fn generate_random_string(rng: &mut ThreadRng, random_string: &str) -> String {
+    let random_op: i32 = rng.gen_range(0..3);
+
+    let change_size = 5;
+    let op_start = rng.gen_range(change_size..(random_string.len() - change_size - 1));
+    let op_end = op_start + change_size;
+    let mut altered_string = random_string.to_string();
+    if random_op == 0 {
+        // insert
+        for _ in op_start..=op_end {
+            altered_string.insert(op_start, random_char(rng));
+        }
+    } else if random_op == 1 {
+        // delete
+        for _ in op_start..=op_end {
+            altered_string.remove(op_start);
+        }
+    } else {
+        // delete then insert
+        for _ in op_start..=op_end {
+            altered_string.remove(op_start);
+        }
+        for _ in op_start..=op_end {
+            altered_string.insert(op_start, random_char(rng));
+        }
+    }
+    altered_string
+}
+
+fn main() {
+    assert_eq!(HASH_COUNT % BAND_SIZE, 0);
+    let mut rng = rand::thread_rng();
+
+    let mut documents = vec![];
+    for _ in 0..ORIGINAL_DOCUMENT_COUNT {
+        let random_string: String = (0..DOCUMENT_LEN).map(|_| random_char(&mut rng)).collect();
+
+        documents.push(random_string.clone());
+
+        let mut altered_string = random_string.clone();
+        for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
+            altered_string = generate_random_string(&mut rng, &altered_string);
+            documents.push(altered_string.clone());
+        }
+    }
+
+    // shuffle documents just so that code below couldn't cheese this by just checking successive indexes
+    documents.shuffle(&mut rng);
+
+    println!(
+        "Generation of {} documents done, starting indexing...\n",
+        &documents.len()
+    );
+    let indexing_start = Instant::now();
+
+    let mut buckets = index_documents(&mut documents);
+    let indexing_duration = indexing_start.elapsed();
+    println!("Done indexing in {:?}, searching", indexing_duration);
+
+    let search_start = Instant::now();
+    let query = &documents[0];
+
+    let (matches, top_neighbors) = search_index(&documents, &mut buckets, query);
     let search_duration = search_start.elapsed();
 
     println!(
