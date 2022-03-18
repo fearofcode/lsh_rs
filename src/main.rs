@@ -10,8 +10,8 @@ use rand::Rng;
 use rayon::prelude::*;
 
 const HASH_COUNT: usize = 50;
-const BAND_SIZE: usize = 5;
-const SHINGLE_SIZE: usize = 3;
+const BAND_SIZE: usize = 10;
+const SHINGLE_SIZE: usize = 5;
 
 // constants for synthetic data
 const ORIGINAL_DOCUMENT_COUNT: usize = 10000;
@@ -104,7 +104,7 @@ fn jaccard_similarity(a: &HashSet<u64>, b: &HashSet<u64>) -> f32 {
 fn nearest_neighbors(
     query: &str,
     n: usize,
-    matches: HashSet<usize>,
+    matches: &HashSet<usize>,
     documents: &[String],
 ) -> Vec<(usize, f32)> {
     let query_shingles = string_shingles(query);
@@ -134,18 +134,19 @@ fn main() {
 
         documents.push(random_string.clone());
 
+        let mut altered_string = random_string.clone();
         for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
-            let mut altered_string = random_string.clone();
-            for _ in 0..PER_DOCUMENT_MUTATION_COUNT {
-                altered_string = generate_random_string(&mut rng, &altered_string);
-                documents.push(altered_string.clone());
-            }
+            altered_string = generate_random_string(&mut rng, &altered_string);
+            documents.push(altered_string.clone());
         }
     }
 
     documents.shuffle(&mut rng);
 
-    println!("Document generation done, starting indexing...\n");
+    println!(
+        "Generation of {} documents done, starting indexing...\n",
+        &documents.len()
+    );
     let indexing_start = Instant::now();
     let mut buckets: Vec<HashMap<u64, Vec<usize>>> = vec![];
 
@@ -181,17 +182,22 @@ fn main() {
         }
     }
 
-    let top_neighbors = nearest_neighbors(&documents[0], 15, matches, &documents);
+    let top_neighbors = nearest_neighbors(&documents[0], 25, &matches, &documents);
     let search_duration = search_start.elapsed();
 
     println!(
-        "Search took {:?}. For query {}, index 0:",
-        search_duration, &documents[0]
+        "Search took {:?}. For query {}, index 0, checking against {} possible matches:",
+        search_duration,
+        &documents[0],
+        &matches.len()
     );
-    for (idx, similarity) in top_neighbors.iter() {
+    for (match_idx, (idx, similarity)) in top_neighbors.iter().enumerate() {
         println!(
-            "{}, similarity {}, index {}",
-            documents[*idx], similarity, idx
+            "Match {}: {}, similarity {}, index {}",
+            match_idx + 1,
+            documents[*idx],
+            similarity,
+            idx
         );
     }
 }
