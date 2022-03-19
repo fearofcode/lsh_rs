@@ -10,13 +10,14 @@ use rand::Rng;
 use rayon::prelude::*;
 
 const HASH_COUNT: usize = 50;
-const BAND_SIZE: usize = 5;
-const SHINGLE_SIZE: usize = 5;
+const BAND_SIZE: usize = 2;
+const SHINGLE_SIZE: usize = 4;
 
 fn chunked_min_hash(document: &str) -> Vec<(usize, u64)> {
     // single hash function. for justification, see https://robertheaton.com/2014/05/02/jaccard-similarity-and-minhash-for-winners/
     // and http://web.eecs.utk.edu/~jplank/plank/classes/cs494/494/notes/Min-Hash/index.html
     let shingle_count = document.len() - SHINGLE_SIZE;
+
     let mut heap = BinaryHeap::with_capacity(shingle_count);
 
     let mut hashes = vec![];
@@ -29,6 +30,11 @@ fn chunked_min_hash(document: &str) -> Vec<(usize, u64)> {
     }
 
     for _ in 0..HASH_COUNT {
+        // try to gracefully handle shingle_count < HASH_COUNT situation. it should still work,
+        // at least under certain conditions
+        if heap.is_empty() {
+            break;
+        }
         hashes.push(heap.pop().unwrap().0);
     }
 
@@ -141,7 +147,7 @@ fn random_char(rng: &mut ThreadRng) -> char {
 fn generate_random_string(rng: &mut ThreadRng, random_string: &str) -> String {
     let random_op: i32 = rng.gen_range(0..3);
 
-    let change_size = 5;
+    let change_size = 50;
     let op_start = rng.gen_range(change_size..(random_string.len() - change_size - 1));
     let op_end = op_start + change_size;
     let mut altered_string = random_string.to_string();
