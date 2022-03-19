@@ -119,6 +119,7 @@ fn search_index(
     documents: &[String],
     buckets: &mut Vec<HashMap<u64, Vec<usize>>>,
     query: &str,
+    n: usize,
 ) -> (HashSet<usize>, Vec<(usize, f32)>) {
     let mut matches: HashSet<usize> = HashSet::new();
     let query_signature = chunked_min_hash(query);
@@ -129,7 +130,7 @@ fn search_index(
         }
     }
 
-    let top_neighbors = nearest_neighbors(query, 25, &matches, documents);
+    let top_neighbors = nearest_neighbors(query, n, &matches, documents);
     (matches, top_neighbors)
 }
 
@@ -206,7 +207,7 @@ fn main() {
     let search_start = Instant::now();
     let query = &documents[0];
 
-    let (matches, top_neighbors) = search_index(&documents, &mut buckets, query);
+    let (matches, top_neighbors) = search_index(&documents, &mut buckets, query, 25);
     let search_duration = search_start.elapsed();
 
     println!(
