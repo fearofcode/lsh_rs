@@ -9,14 +9,14 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rayon::prelude::*;
 
-const HASH_COUNT: usize = 50;
+const HASH_COUNT: usize = 100;
 const BAND_SIZE: usize = 2;
 const SHINGLE_SIZE: usize = 4;
 
 fn chunked_min_hash(document: &str) -> Vec<(usize, u64)> {
     // single hash function. for justification, see https://robertheaton.com/2014/05/02/jaccard-similarity-and-minhash-for-winners/
     // and http://web.eecs.utk.edu/~jplank/plank/classes/cs494/494/notes/Min-Hash/index.html
-    let shingle_count = document.len() - SHINGLE_SIZE;
+    let shingle_count = document.len() - SHINGLE_SIZE + 1;
 
     let mut heap = BinaryHeap::with_capacity(shingle_count);
 
