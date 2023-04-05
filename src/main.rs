@@ -117,7 +117,7 @@ fn index_documents(documents: &mut Vec<String>) -> Vec<HashMap<u64, Vec<usize>>>
 
 fn search_index(
     documents: &[String],
-    buckets: &mut Vec<HashMap<u64, Vec<usize>>>,
+    buckets: &mut [HashMap<u64, Vec<usize>>],
     query: &str,
     n: usize,
 ) -> (HashSet<usize>, Vec<(usize, f32)>) {
